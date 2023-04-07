@@ -1,0 +1,208 @@
+---
+title: "Jakie zwierzę domowe wybrać?"
+author: "Dorota Więcek, Mateusz Strojek, Beata Skorus, Aleksandra Soroka"
+date: "`r Sys.Date()`"
+output: html_document
+geometry: margin=3cm
+---
+
+##### Projekt polega na stworzeniu binarnego drzewa decyzyjnego z wykorzystaniem alogrytmu ID3-Quinlana. Tamatyka projektu dotyczy pytania _Jakie zwierzę domowe wybrać?_ Tabela z danymi zawiera 5 przesłanek:
+1. Czy występuje alergia na sierść?
+  - tak 
+  - nie
+2. Czy osoba jest aktywna?
+  - tak 
+  - średnio
+  - nie
+3. Jakie fundusze posiada?
+  - poniżej 100
+  - 100-200
+  - 201-300
+  - powyżej 300
+4. Ile czasu może poświęcić dziennie?
+  - poniżej 1h 
+  - 1-2h
+  - powyżej 2h
+5. Jakiej długości życia zwierzęcia oczekuje?
+  - poniżej 5 lat 
+  - 5-15 lat
+  - powyżej 15h
+  
+##### Nasze konkluzje to: **rybki, żółw, chomik, kot, pies**.
+
+---
+
+Zaczynamy od zaimportowania bibliotek służących do wczytania pliku xslx oraz do rysowania drzewa. Następnie wczytujemy tabelę z Excela, która zawiera zbiór danych uczących (bez 4 danych testowych). Określamy też liczbę możliwych konkluzji poprzez przypisanie wartości 5 do zmiennej _liczba_konkluzji_. Konkluzje muszą znajdować się na ostatnich kolumnach tabeli.
+```{r message=FALSE, warning=FALSE}
+library("readxl")
+library("data.tree")
+```
+```{r}
+tablica <- read_excel("zbior_uczacy.xlsx", col_names = TRUE)
+liczba_konkluzji <- 5
+```
+
+---
+
+W kolejnym etapie definiujemy funkcję "I", która oblicza entropię dla danego zbioru danych reprezentowanego przez tablicę "tab". Na początku funkcja inicjuje zmienną "suma" wartością 0, która będzie służyła do sumowania wyników entropii z każdej możliwej klasy konkluzji. Następnie funkcja wykonuje pętlę "for", iterującą po każdej klasie konkluzji. Wewnątrz pętli sprawdza, czy dla danej klasy istnieją jakieś rekordy w tabeli, którą można ocenić w kontekście tej klasy. Jeśli wiersze odpowiadające tej klasie mają jakiekolwiek wartości inne niż zero, funkcja oblicza entropię. Ostatecznie funkcja zwraca wartość "suma", która reprezentuje entropię dla całego zbioru danych.
+```{r}
+I <- function(tab)
+{
+  suma<-0
+  for(i in 1:liczba_konkluzji){
+    if(sum(tab[,ncol(tab)-i+1])!=0){
+      suma <- suma - sum(tab[,ncol(tab)-i+1])/nrow(tab) * log2(sum(tab[,ncol(tab)-i+1])/nrow(tab))
+    }
+  }
+  return(suma)
+}
+```
+
+---
+
+Definiujemy funkcję "I_E", która oblicza przyrost informacji (różnicę między entropią przed podziałem a ważoną sumą entropii po podziale). Funkcja zaczyna od zainicjowania dwóch zmiennych, "war_potwierdzenie" i "war_zaprzeczenie", jako pustych wektorów, które będą przechowywać wartości potwierdzenia i zaprzeczenia dla każdej klasy konkluzji. Następnie funkcja wykonuje pętlę "for", która iteruje po każdej klasie konkluzji i oblicza wartość "war_potwierdzenie" dla podziału "a". Wartość ta jest obliczana na podstawie stosunku liczby rekordów w podzbiorze "a" odpowiadających danej klasie konkluzji do liczby wszystkich rekordów w zbiorze "a". Funkcja oblicza entropię "e1" dla podziału "a". Entropia ta jest obliczana tylko dla klas konkluzji, które występują w podzbiorze "a". Podobnie jak dla podziału "a", funkcja oblicza wartość "war_zaprzeczenie" dla podziału "b", a następnie entropię "e2" dla podziału "b". Na podstawie wartości entropii "e1" i "e2" oraz współczynników wagowych "ulamek1" i "ulamek2", funkcja oblicza wartość "E" dla całego podziału. Na końcu funkcja oblicza przyrost informacji "przyrost", który jest różnicą między entropią dla całego zbioru danych (obliczoną przez funkcję "I") a entropią dla podziału "a" i "b" (obliczone przez funkcję "I_E"). Ostatecznie funkcja zwraca wartość "przyrost".
+```{r}
+I_E <- function(a, b, ulamek1, ulamek2, tabl)
+{
+  war_potwierdzenie <- c()
+  for(i in 1:liczba_konkluzji){
+    war_potwierdzenie[i] <- nrow(a[a[,ncol(a)-i+1] == "1",])/nrow(a)
+  }
+  e1 = 0
+  for(i in 1:length(war_potwierdzenie)){
+    if (war_potwierdzenie[i] != "0") {
+      e1 = e1 - (war_potwierdzenie[i] * log(war_potwierdzenie[i],2))
+    }
+  }
+  war_zaprzeczenie <- c()
+  for(i in 1:liczba_konkluzji){
+    war_zaprzeczenie[i] <- nrow(b[b[,ncol(b)-i+1] == "1",])/nrow(b)
+  }
+  e2 = 0
+  for(i in 1:length(war_zaprzeczenie)){
+    if (war_zaprzeczenie[i] != "0") {
+      e2 = e2 - (war_zaprzeczenie[i] * log(war_zaprzeczenie[i],2))
+    }
+  }
+  E = e1 * ulamek1 + e2 * ulamek2
+  return (przyrost <- (I(tabl) - E))
+}
+```
+
+---
+
+Następnie definiujemy funkcję "wektor_I_E", która przyjmuje jako argument tabelę "tab". Funkcja ta wykorzystuje funkcję I_E do obliczenia przyrostu informacji dla każdej przesłanki. W pierwszej pętli for iterujemy po kolumnach tabeli tab, z wyłączeniem kolumn konkluzji, aby obliczyć dla każdej przesłanki przyrost informacji. Jeśli suma wartości w kolumnie jest równa liczbie wierszy tabeli lub równa 0, to przyrost informacji dla tej zmiennej jest ustawiony na 0. W przeciwnym razie, wartości ulamek1 i ulamek2 są obliczane jako proporcje wierszy tabeli, w których wartość przesłanki jest odpowiednio "1" i "0". Następnie tabela tab jest podzielona na dwie podtabelki a i b zawierające odpowiednio wiersze, w których wartość przesłanki jest "1" i "0". Funkcja I_E jest wywoływana z tymi dwoma podtabelami i oblicza przyrost informacji. Ostatecznie wartości te są dodawane do wektora przyrosty i zwracane przez funkcję wektor_I_E.
+```{r}
+wektor_I_E<- function(tab){
+  przyrosty<-c()
+  for (i in 1:(ncol(tab)-liczba_konkluzji)){
+    if(sum(tab[,i])==nrow(tab) || sum(tab[,i]) == 0){
+      przyrosty <- append(przyrosty, 0)
+    }
+    else {
+      ulamek1 <- nrow(tab[tab[,i] == "1",])/nrow(tab)
+      a <- subset(tab, tab[,i]=="1")
+      ulamek2 <- nrow(tab[tab[,i] != "1",])/nrow(tab)
+      b <- subset(tab, tab[,i]!="1")
+      przyrosty <- append(przyrosty, I_E(a, b, ulamek1, ulamek2, tab))
+    }
+  }
+  return(przyrosty)
+}
+```
+
+---
+
+Tworzymy funkcję "podzial", która służy do tworzenia drzewa decyzyjnego. W tym celu funkcja rekurencyjnie dzieli podaną tabelę tab na mniejsze podtabelki na podstawie kolumn, które mają największy przyrost informacji. Jeśli żadna kolumna nie daje przyrostu informacji, to funkcja "podzial" kończy swoje działanie i dodaje do drzewa decyzyjnego węzeł reprezentujący wynik. Jeśli istnieje kolumna, która daje przyrost informacji, to funkcja podzial dzieli tabelę tab na dwie podtabelki na podstawie wartości w tej kolumnie (wartości 1 i wartości inne niż 1). Następnie dla każdej podtabeli rekurencyjnie wywołuje funkcję "podzial", tworząc kolejne węzły drzewa decyzyjnego.
+```{r}
+podzial <- function(drzewo, tab){
+  
+  czy_nie_dzielic <- FALSE
+  for(i in 1:liczba_konkluzji){
+    if(nrow(tab[tab[ncol(tab)-i+1] == "1",])/(nrow(tab)) == 1){
+      child <- drzewo$AddChild(colnames(tab[ncol(tab)-i+1]))
+      drzewo$przeslanka <- "wynik"
+      czy_nie_dzielic <- TRUE
+      break
+    }
+  }
+  
+  if(czy_nie_dzielic == FALSE){
+    entropie_w_kolumnach <- wektor_I_E(tab)
+    max <- which.max(entropie_w_kolumnach)
+    tabele <- list()
+    
+    drzewo$przeslanka <- colnames(tab[,max])
+    
+    tabele[[1]] <- subset(tab, tab[,max]=="1")
+    tabele[[2]] <- subset(tab, tab[,max]!="1")
+    
+    for(i in 1:length(tabele)){
+      if(i==1){
+        child <- drzewo$AddChild("1")
+      } else{
+        child <- drzewo$AddChild("0")
+      }
+      podzial(child, tabele[[i]])
+    }
+  }
+}
+```
+
+---
+
+Tworzymy drzewo, na podstawie zbioru uczącego.
+```{r}
+drzewo <- Node$new("wybór zwierzaka")
+podzial(drzewo, tablica)
+print(drzewo, 'przeslanka')
+```
+
+---
+
+Następnie definiujemy funkcję "Predykcja", która przyjmuje dwa argumenty: "drzewo" oraz "przesłanki". Najpierw funkcja sprawdza, czy węzeł jest liściem, a jeśli tak, to zwraca wartość tego liścia. W przeciwnym przypadku funkcja przechodzi do odpowiedniego dziecka węzła na podstawie wartości w wektorze "przesłanki". Następnie funkcja wywołuje się ponownie dla tego dziecka i wektora przesłanek, aby kontynuować poruszanie się po drzewie.
+```{r}
+Predykcja <- function(drzewo, przeslanki) {
+  if (drzewo$children[[1]]$isLeaf) return (drzewo$children[[1]]$name)
+  child <- drzewo$children[[przeslanki[[drzewo$przeslanka]]]]
+  return (Predykcja(child, przeslanki))
+}
+```
+
+---
+
+Na sam koniec wywołujemy funkcję "predykcja" dla 4 różnych danych ze zbioru testowego. Drzewo wykorzystywane jest do predykcji wyniku na podstawie podanych wartości przesłanek.
+```{r}
+Predykcja(drzewo, c(alergia_na_siersc='1', brak_alergii_na_siersc = '0', 
+                    osoba_aktywna = '0', osoba_nieaktywna = '0', osoba_srednio_aktywna = '1', 
+                    fundusze_ponizej_100 = '1', fundusze_100_200 = "0", fundusze_201_300 = '0', fundusze_powyzej_300 = '0', 
+                    czas_ponizej_1h_dziennie = '1', czas_1_2h_dziennie = '0', czas_powyzej_2h_dziennie = '0', 
+                    oczek_dl_zycia_ponizej_5_l = '0', oczek_dl_zycia_5_15_l= '0', oczek_dl_zycia_powyzej_15_l = '1'))
+
+Predykcja(drzewo, c(alergia_na_siersc='1', brak_alergii_na_siersc = '0', 
+                    osoba_aktywna = '0', osoba_nieaktywna = '0', osoba_srednio_aktywna = '1', 
+                    fundusze_ponizej_100 = '0', fundusze_100_200 = "1", fundusze_201_300 = '0', fundusze_powyzej_300 = '0', 
+                    czas_ponizej_1h_dziennie = '0', czas_1_2h_dziennie = '1', czas_powyzej_2h_dziennie = '0', 
+                    oczek_dl_zycia_ponizej_5_l = '0', oczek_dl_zycia_5_15_l = '1', oczek_dl_zycia_powyzej_15_l = '0'))
+
+Predykcja(drzewo, c(alergia_na_siersc='0', brak_alergii_na_siersc = '1', 
+                    osoba_aktywna = '1', osoba_nieaktywna = '0', osoba_srednio_aktywna = '0', 
+                    fundusze_ponizej_100 = '0', fundusze_100_200 = "1", fundusze_201_300 = '0', fundusze_powyzej_300 = '0', 
+                    czas_ponizej_1h_dziennie = '0', czas_1_2h_dziennie = '1', czas_powyzej_2h_dziennie = '0', 
+                    oczek_dl_zycia_ponizej_5_l = '1', oczek_dl_zycia_5_15_l = '0', oczek_dl_zycia_powyzej_15_l = '0'))
+
+Predykcja(drzewo, c(alergia_na_siersc='0', brak_alergii_na_siersc = '1', 
+                    osoba_aktywna = '0', osoba_nieaktywna = '0', osoba_srednio_aktywna = '1', 
+                    fundusze_ponizej_100 = '0', fundusze_100_200 = "0", fundusze_201_300 = '0', fundusze_powyzej_300 = '1', 
+                    czas_ponizej_1h_dziennie = '0', czas_1_2h_dziennie = '0', czas_powyzej_2h_dziennie = '1', 
+                    oczek_dl_zycia_ponizej_5_l = '0', oczek_dl_zycia_5_15_l = '0', oczek_dl_zycia_powyzej_15_l = '1'))
+
+```
+
+
+
+
+
+
+
+
